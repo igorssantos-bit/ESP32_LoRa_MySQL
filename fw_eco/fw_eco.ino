@@ -20,7 +20,7 @@
 #endif
 
 //Inclusao da biblioteca
-#include "RoboCore_SMW_SX1276M0.h"
+#include "src/RoboCore_SMW_SX1276M0.h"
 
 //Declaracao dos pinos de comunicacao serial do Kit
 #include <HardwareSerial.h>

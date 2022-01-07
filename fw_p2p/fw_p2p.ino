@@ -11,7 +11,7 @@
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "RoboCore_SMW_SX1276M0.h"
+#include "src/RoboCore_SMW_SX1276M0.h"
 #include "HardwareSerial.h"
 #include "ArduinoJson.h"
 

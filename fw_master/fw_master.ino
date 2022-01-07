@@ -1,5 +1,5 @@
 /*******************************************************************************
-   fw_slave
+   fw_master
 
    Codigo usado para envio dos dados de leitura de sensores de modulos escravos
    para um modulo mestre (master) usando a tecnologia LoRa ponto-a-ponto (P2P).
@@ -19,11 +19,9 @@
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "RoboCore_SMW_SX1276M0.h"
+#include "src/RoboCore_SMW_SX1276M0.h"
 #include "HardwareSerial.h"
 #include "ArduinoJson.h"
-#include "DHT.h"
-#include "RoboCore_MMA8452Q.h"
 
 /* Defines -------------------------------------------------------------------*/
 #define LORA_RXD2_PIN   16
@@ -31,37 +29,23 @@
 
 /* Variables -----------------------------------------------------------------*/
 // Declaracao do GPIO
-const int pinoDHT = 12;
-const int pinoBotao = 4;
-const int pinoLDR = 15;
 const int statusLED = 13;
 const int sendLED = 2;
 
 // Criamos as instancias que serao usadas no decorrer do codigo
 HardwareSerial LoRaSerial(2);       // Pinos de Comunicacao LoRa
 SMW_SX1276M0 lorawan(LoRaSerial);   // Objeto lora da biblioteca SMW_SX1276
-DHT dht(pinoDHT, DHT11);
-MMA8452Q acel;
 CommandResponse resposta;
 
 // Declaracao das variaveis que armazenam as informacoes da rede
-const char DADDR[] = "00000002";
-const char P2PDA[] = "00000001";
+const char DADDR[] = "00000001";
+const char P2PDA[] = "00000002";
 const char APPSKEY[] = "0000000000000000000000000000000c";
 const char NWSKEY[] = "0000000000000000000000000000000b";
-
-// Declaracao das variaveis que armazenam estado ou leitura dos sensores
-int valorLDR = 0;
-int estado_botao = LOW;
-
-// Declaracao das variaveis de tempo
-const unsigned long PAUSE_TIME = 300000; // [ms] (5 min)
-unsigned long timeout;
 
 /* Prototypes  ----------------------------------------------------------------*/
 void lora_network_init(void);
 void event_handler(Event);
-void envia_dados(void);
 
 /* Functions  ----------------------------------------------------------------*/
 
@@ -73,10 +57,9 @@ void envia_dados(void);
 void setup() {
    // Inicializacao Serial
    Serial.begin(9600);
-   Serial.println(F("Lora_Slave_v1.0"));
+   Serial.println(F("Lora_Master_v1.0"));
 
    // Inicializacao GPIO
-   pinMode(pinoBotao, INPUT);
    pinMode(statusLED, OUTPUT);
    pinMode(sendLED, OUTPUT);
 
@@ -86,10 +69,6 @@ void setup() {
    LoRaSerial.begin(115200, SERIAL_8N1, LORA_RXD2_PIN, LORA_TXD2_PIN);
    lorawan.event_listener = &event_handler;      // Declaracao do handler
    lora_network_init();
-
-   // Inicializacao sensores (DHT11 e Acelerometro)
-   dht.begin();
-   acel.init();
 }
 
 /*!
@@ -100,20 +79,6 @@ void setup() {
 void loop() {
    // Habilita eventos vindos do modulo lora
    lorawan.listen();
-
-   estado_botao = digitalRead(pinoBotao);
-
-   // Envia dados a cada PAUSE_TIMES ms ou ou pressionar o botao
-   if (timeout < millis()) {
-      envia_dados();
-      timeout = millis() + PAUSE_TIME;
-   } else if (estado_botao == LOW) {
-      delay(30);
-      estado_botao = digitalRead(pinoBotao);
-      envia_dados();
-      // Espero soltar o botao
-      while (digitalRead(pinoBotao) == LOW);
-   }
 }
 
 /*!
@@ -188,63 +153,44 @@ void lora_network_init(void) {
    @return None
 */
 void event_handler(Event type) {
-   switch(type){
+   switch (type) {
       case (Event::JOINED):{
          Serial.println(F("Conectado!"));
+      }
+      break;
+      
+      case (Event::RECEIVED_X):{
+         Serial.println(F("Mensagem Hexadecimal Recebida!"));
+
+         //Declaracao da variavel "porta"
+         uint8_t porta;
+
+         //Declaracao da variavel "leitura_buffer"
+         uint8_t leitura_buffer;
+
+         //Declaracao do objeto "buffer"
+         Buffer buffer;
+
+         //Atrela a variavel "resposta" o que foi retornado pelo módulo
+         resposta = lorawan.readX(porta, buffer);
+         if (resposta == CommandResponse::OK) { //Se retornar "<OK>"
+            Serial.print(F("Mensagem: "));
+            for (uint8_t i = 0 ; i < buffer.available() ; i++) {
+               leitura_buffer = buffer[i];
+               Serial.write(leitura_buffer);
+            }
+            if (leitura_buffer == '0') {
+               Serial.print(F(" (zero)"));
+               int estado_LED = !digitalRead(statusLED);
+               digitalWrite(statusLED, estado_LED);
+            }
+            Serial.print(F(" na porta "));
+            Serial.println(porta);
+         }
       }
       break;
       
       default:{}
       break;
    }
-}
-
-/*!
-   Funcao que trata os dados a ser enviados no formato json
-   @param None
-   @return None
-*/
-void envia_dados(void) {
-   // Acendemos o LED azul do ESP32 quando iniciamos a leitura e envio dos dados
-   digitalWrite(sendLED, HIGH);
-
-   // Fazemos a leitura do sensor de luminosidade LDR e mapeamos o valor lido
-   valorLDR = analogRead(pinoLDR);
-   valorLDR = map(valorLDR, 4095, 2500, 0, 100);
-
-   // Fazemos a leitura da temperatura e umidade
-   float temperatura = dht.readTemperature();
-   float umidade = dht.readHumidity();
-
-   // Fazemos a leitura do acelerometro e multiplicamos os valores por 100,
-   // para torna-los valores inteiros e facilitar o envio para a plataforma
-   acel.read();
-   int x = acel.x * 100;
-   int y = acel.y * 100;
-   int z = acel.z * 100;
-
-   // Criamos uma variavel JSON que ira conter os valores das variaveis
-   DynamicJsonDocument json(JSON_OBJECT_SIZE(6));
-
-   // Configuramos a variavel JSON com os Alias criados na plataforma ProIoT
-   // e salvamos em cada componente o respectivo valor da variavel lida
-   json["T"] = temperatura;
-   json["U"] = umidade;
-   json["L"] = valorLDR;
-   json["X"] = x;
-   json["Y"] = y;
-   json["Z"] = z;
-
-   // Criamos uma String chamada payload que ira conter todas as informacoes do JSON
-   String payload = "";
-   serializeJson(json, payload);
-
-   Serial.print("Valores enviados: ");
-   Serial.println(payload);
-
-   // Enviamos todas as informações via LoRaWAN
-   resposta = lorawan.sendT(1, payload);
-
-   // Apagamos o LED azul do ESP32 quando terminamos de enviar
-   digitalWrite(sendLED, LOW);
 }
